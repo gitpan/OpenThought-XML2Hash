@@ -1,12 +1,12 @@
-# This file is Copyright (c) 2000-2002 Eric Andreychek.  All rights reserved.
+# This file is Copyright (c) 2000-2003 Eric Andreychek.  All rights reserved.
 # For distribution terms, please see the included LICENSE file.
 #
-# $Id: XML2Hash.pm,v 1.6 2002/08/26 02:42:11 andreychek Exp $
+# $Id: XML2Hash.pm,v 1.9 2003/08/10 03:25:13 andreychek Exp $
 #
 
 package OpenThought::XML2Hash;
 
-$OpenThought::XML2Hash::VERSION = '0.56';
+$OpenThought::XML2Hash::VERSION = '0.57';
 
 =head1 NAME
 
@@ -32,7 +32,8 @@ namespaces, and CDATA sections.  This is a feature :-)  One day, it'll probably
 do something constructive with comments.
 
 With the limited set of XML processed, and the methods used to process it,
-XML2Hash appears to be almost twice as fast as similar solutions found on CPAN.
+XML2Hash appears to be almost twice as fast as any other module on CPAN which
+can make a hash out of XML.
 
 =head1 FUNCTIONS
 
@@ -87,6 +88,7 @@ my $start_element;
 my $parsing = 0;
 my $hash_root = {};
 my $last_element;
+my $tag_open = 1;
 
 sub xml2hash {
     my ( $xml, $start_element_param ) = @_;
@@ -99,9 +101,10 @@ sub xml2hash {
     $parsing = 0;
     $hash_root = {};
     $last_element = "";
+    $tag_open = 1;
 
     # Create a new XML::Parser::Expat Object
-    my $parser = new XML::Parser::Expat;
+    my $parser = XML::Parser::Expat->new;
     $parser->setHandlers( 'Start'  => \&_handle_start );
 
     # If we were not passed a start element, we begin parsing immediatly
@@ -149,11 +152,15 @@ sub _handle_start {
 
     # If a start tag is listed, and the parsing flag has not yet been switched
     # on -- test to see if the current element is our start element.
-    if (( $start_element ) && ( !$parsing )) {
+    if ( $start_element and not $parsing ) {
 
         # If the current element is the start element, turn on parsing
-        $parsing = 1 if $element eq $start_element;
-            return;
+        if( $element eq $start_element ) {
+            $parsing = 1 if $element eq $start_element;
+            $parser->setHandlers( 'Char' => \&_handle_char,
+                                  'End'  => \&_handle_end  );
+        }
+        return;
     }
 
     return unless $parsing;
@@ -177,6 +184,8 @@ sub _handle_end {
     if( $last_element eq $element ) {
         _build_hash( $parser, "", "", $element );
     }
+
+    $tag_open = 0;
 }
 
 # Sub which handles the character data
@@ -184,7 +193,6 @@ sub _handle_char {
     my ( $parser, $char ) = @_;
 
     return unless $parsing;
-    $last_element = "";
 
     # We get a lot of false data full of spaces which XML::Parser thinks is a
     # character element.. so if we are called with only spaces, just ignore
@@ -192,6 +200,7 @@ sub _handle_char {
     return if $char =~ m/^\s+$/;
 
     _build_hash( $parser, $char );
+    $last_element = "";
 }
 
 #  $parser:  The XML::Parser::Expat object
@@ -234,8 +243,8 @@ sub _build_hash {
     }
 
     # If we are trying to only parse a segment of the XML file,
-    # $parser->context returns too information.  Figure out what to drop off
-    # the front of the path.
+    # $parser->context returns too much information.  Figure out what to drop
+    # off the front of the path.
     my $parse;
     if ( $start_element ) {
         $parse = 0;
@@ -246,7 +255,7 @@ sub _build_hash {
 
     foreach my $key ( @path ) {
 
-        if (( !$parse ) && ( $key eq $start_element )) {
+        if ( not $parse and $key eq $start_element ) {
             $parse = 1;
             next;
         }
@@ -260,7 +269,8 @@ sub _build_hash {
         # existing nested hash.  $hash_ref will always point to the latest
         # hashref put onto our nested hash.  At any point, we can see the entire
         # nested hash via $hash_root.
-        $hash_ref = ( $hash_ref->{$key} ||= {} );
+        $hash_ref->{$key} ||= {};
+        $hash_ref = $hash_ref->{$key};
     }
 
     unless ($parse) {
@@ -271,12 +281,27 @@ sub _build_hash {
     # If our current $last_key doesn't already exist, assign it now!
     if ( !exists($hash_ref->{$last_key} )) {
         $hash_ref->{$last_key} = $value;
+        $tag_open = 1;
+    }
+
+    # Sometimes, and for some odd reason, the char event may be called more
+    # than once for the same character field.  In that case, we want to append
+    # the data onto the existing key (ampersands seem to cause this behavior)
+    elsif ( exists $hash_ref->{$last_key} and $tag_open ) {
+        $hash_ref->{$last_key} .= $value;
     }
 
     # If the key we're trying to create already exists as an array, push the
     # new value on it
     elsif( ref( $hash_ref->{$last_key} ) eq "ARRAY") {
         push @{ $hash_ref->{$last_key} }, $value;
+    }
+
+    # Sometimes, the char handler is called multiple times, even before hitting
+    # the end tag.  This is here to handle events like that -- the chars should
+    # be strung together.
+    elsif(( exists( $hash_ref->{$last_key} )) && ( $last_element eq "")) {
+        $hash_ref->{$last_key} .= $value;
     }
 
     # If the key already exists, don't overwrite it, turn it into an array so we
@@ -309,7 +334,7 @@ Eric Andreychek (eric at openthought.net)
 
 =head1 COPYRIGHT
 
-The OpenThought Engine is Copyright (c) 2000-2002 by Eric Andreychek.
+OpenThought::XML2Hash is Copyright (c) 2000-2003 by Eric Andreychek.
 
 =head1 BUGS
 

@@ -5,6 +5,20 @@ Key:
 ** An optional feature has been added that is probably worth checking out
 *** This is a new feature that will likely require a change in your code
 
+
+Changes since 0.56
+------------------
+
+** Passing an element parameter should now work as documented
+
+** Nasty escaping bug fixed.  Data containing < > & chars would probably not
+have worked as expected.
+
+* Sometimes, XML::Parser::Expat can call the character handler multiple times,
+even before reaching an end tag.  We now properly handle this case by
+concatenating the strings into one, as opposed to making it an array.
+
+
 Changes since 0.55
 ------------------
 
